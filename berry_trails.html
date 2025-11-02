@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Berry Trails Interactive</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    :root {
+      --bg: #1c1c1c;
+      --panel: #2c2c2c;
+      --accent: #6b8e23;
+      --muted: #cccccc;
+      --warm: #a0522d;
+      font-family: 'Inter', system-ui, sans-serif;
+    }
+    html, body { margin:0; padding:0; height:100%; background: var(--bg); color: var(--muted); }
+    .app { display:grid; grid-template-columns:320px 1fr; height:100%; }
+
+    .sidebar { background: var(--panel); padding:16px; overflow:auto; }
+    .sidebar h1 { color: var(--accent); font-size:20px; margin:0 0 10px; }
+    .trail-list { display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+    .trail { background:#3a3a3a; padding:10px; border-radius:8px; cursor:pointer; }
+    .trail:hover { background:#4a4a4a; }
+    .trail .name { font-weight:600; color: var(--accent); }
+    .trail .sub { font-size:12px; color: var(--muted); }
+
+    #map { height:100%; }
+    .info-panel { position:absolute; top:20px; right:20px; background:var(--panel); padding:16px; border-radius:12px; max-width:380px; display:none; box-shadow:0 0 20px rgba(0,0,0,0.5); }
+    .info-panel h2 { margin:0 0 6px; color: var(--accent); }
+    .info-panel p { margin:4px 0; color: var(--muted); }
+    .info-panel img { width:150px; height:150px; border:2px solid #ddd; border-radius:6px; margin-top:8px; }
+    .btn { padding:6px 10px; border:none; border-radius:6px; background:var(--accent); color:white; cursor:pointer; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <h1>Berry Trails Interactive</h1>
+      <input type="text" id="search" placeholder="Search trails..." style="width:100%; padding:6px; border-radius:6px; border:none; margin-bottom:12px;">
+      <div class="trail-list" id="trailList"></div>
+    </aside>
+    <main>
+      <div id="map"></div>
+      <div class="info-panel" id="infoPanel">
+        <h2 id="trailTitle"></h2>
+        <p id="trailLength"></p>
+        <p id="trailDifficulty"></p>
+        <p id="trailHistory"></p>
+        <p id="trailDescription"></p>
+        <button class="btn" id="generateQR">Generate QR Sign</button>
+        <div id="qrContainer"></div>
+      </div>
+      <div id="printSign" style="display:none;"></div>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const trails = [
+      {id:'houseofdreams', name:"House o' Dreams Trail", length_km:0.9, difficulty:'Easy', history:"Named for the historic House o' Dreams on campus; used for class walks.", description:"Short, gentle walk with interpretive signs and native plantings.", coords:[[34.2549,-85.1638],[34.2553,-85.1644]]},
+      {id:'viking', name:'Viking Trail', length_km:2.4, difficulty:'Hard', history:'Built by student groups in the 1990s and maintained by Outdoor Recreation.', description:'Steep sections, rocky outcrops, scenic overlooks.', coords:[[34.2583,-85.1661],[34.2590,-85.1665],[34.2596,-85.1670]]},
+      {id:'longleaf', name:'Longleaf Pine Trail', length_km:1.5, difficulty:'Moderate', history:'Follows natural pine stands and small wildlife habitats.', description:'Mixed terrain trail ideal for walking and birdwatching.', coords:[[34.2575,-85.1648],[34.2580,-85.1653]]},
+      {id:'eagle', name:'Eagle Trail', length_km:2.0, difficulty:'Moderate', history:'Named for the eagle statue overlooking the campus.', description:'Trail with moderate inclines and forest scenery.', coords:[[34.2560,-85.1660],[34.2565,-85.1665]]},
+      {id:'oldmill', name:'Old Mill Loop', length_km:1.2, difficulty:'Easy', history:'Encircles the site of an old Berry mill.', description:'Flat loop trail perfect for beginners.', coords:[[34.2550,-85.1655],[34.2555,-85.1660]]},
+      {id:'reservoir', name:'Reservoir Trail', length_km:1.8, difficulty:'Moderate', history:'Constructed in the early 20th century for forestry studies.', description:'Loop around the reservoir with great birding spots.', coords:[[34.2565,-85.1645],[34.2570,-85.1650],[34.2568,-85.1658],[34.2562,-85.1652]]},
+      {id:'lavender', name:'Lavender Mountain Trail', length_km:3.2, difficulty:'Moderate', history:'Trail follows old logging roads and connects to regional corridors.', description:'Longer route up Lavender Mountain with scenic views.', coords:[[34.2620,-85.1700],[34.2630,-85.1710],[34.2640,-85.1720]]},
+      {id:'victorylake', name:'Victory Lake Trail', length_km:1.7, difficulty:'Easy', history:'Connects the campus to Victory Lake.', description:'Gentle trail around the lake.', coords:[[34.2595,-85.1655],[34.2600,-85.1660]]},
+      {id:'cabinloop', name:'Cabin Loop Trail', length_km:0.8, difficulty:'Easy', history:'Encircles student cabins.', description:'Short loop ideal for quick walks.', coords:[[34.2555,-85.1640],[34.2558,-85.1644]]},
+      {id:'possumtrot', name:'Possum Trot Trail', length_km:2.3, difficulty:'Moderate', history:'Historic trail used by early Berry students.', description:'Forest trail with varied terrain.', coords:[[34.2572,-85.1670],[34.2580,-85.1675]]},
+      {id:'reservoirconnector', name:'Reservoir Connector', length_km:1.1, difficulty:'Easy', history:'Connects the main campus to the Reservoir Trail.', description:'Short connector trail.', coords:[[34.2563,-85.1650],[34.2567,-85.1655]]},
+      {id:'marthaberry', name:'Martha Berry Highway Connector', length_km:0.9, difficulty:'Easy', history:'Links campus trails to the nearby highway path.', description:'Flat, paved connector.', coords:[[34.2545,-85.1630],[34.2550,-85.1635]]},
+      {id:'waterfall', name:'Waterfall Trail', length_km:1.6, difficulty:'Moderate', history:'Passes a small waterfall near the campus forest.', description:'Trail with rocky terrain and scenic waterfall.', coords:[[34.2585,-85.1675],[34.2590,-85.1680]]}
+    ];
+
+    const map = L.map('map').setView([34.2565,-85.1650],15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19, attribution:'© OpenStreetMap contributors'}).addTo(map);
+
+    const trailLayers = {};
+    const infoPanel = document.getElementById('infoPanel');
+
+    function showInfo(trail){
+      document.getElementById('trailTitle').innerText = trail.name;
+      document.getElementById('trailLength').innerText = `Length: ${trail.length_km} km`;
+      document.getElementById('trailDifficulty').innerText = `Difficulty: ${trail.difficulty}`;
+      document.getElementById('trailHistory').innerText = `History: ${trail.history}`;
+      document.getElementById('trailDescription').innerText = `Description: ${trail.description}`;
+      infoPanel.style.display = 'block';
+      map.fitBounds(trail.coords.map(c=>[c[0],c[1]]), {padding:[50,50]});
+
+      const qrUrl = encodeURIComponent(window.location.href + '#trail=' + trail.id);
+      document.getElementById('qrContainer').innerHTML = `<img src='https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${qrUrl}' alt='QR code'/>`;
+    }
+
+    function addTrails(){
+      const listEl = document.getElementById('trailList');
+      trails.forEach(trail=>{
+        const item = document.createElement('div');
+        item.className = 'trail';
+        item.innerHTML = `<div class='name'>${trail.name}</div><div class='sub'>${trail.length_km} km • ${trail.difficulty}</div>`;
+        item.onclick = ()=>showInfo(trail);
+        listEl.appendChild(item);
+
+        const line = L.polyline(trail.coords
